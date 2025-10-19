@@ -1,4 +1,4 @@
-# 檔案：daily_seamless_trend.py (雲端資料庫版本)
+# 檔案：daily_seamless_trend.py (雲端資料庫 v2 - 最終修正版)
 
 import pandas as pd
 import numpy as np
@@ -7,7 +7,7 @@ import streamlit as st
 from typing import List
 from datetime import time, timedelta
 
-# --- 設定與常量 (常數保持不變，移除舊的 DB_PATH) ---
+# --- 設定與常量 ---
 TABLE   = "atm"
 DATE_COL= "時間戳記"
 FT_COL  = "FT價格"
@@ -17,34 +17,36 @@ TARGET_END_TIME_NIGHT = time(5, 0)
 T_PLUS_1_CUTOFF = time(5, 1)
 TARGET_END_TIME_DAY = time(13, 46)
 
-# --- 1. 數據獲取與清理 (已改為雲端版本) ---
+# --- 1. 數據獲取與清理 ---
 
 def _fetch_intraday_data(table, date_col, mode, date_list: List[str]) -> pd.DataFrame:
-    """【雲端版】獲取特定日期列表的分時數據"""
+    """【雲端版 v2】獲取特定日期列表的分時數據 (修正 IN clause 語法)"""
     if not date_list:
         return pd.DataFrame()
 
-    # 使用 st.connection 自動讀取 secrets.toml 的設定
     conn = st.connection("mysql", type="sql")
 
-    # 準備 SQL 查詢 (MySQL 格式)
-    # 使用 tuple 來安全地傳入多個日期
+    # --- 【核心修正】---
+    # 1. 產生與 date_list 長度相符的參數佔位符，例如 ( :date_0, :date_1, ... )
+    date_placeholders = ", ".join([f":date_{i}" for i in range(len(date_list))])
+
+    # 2. 準備 SQL 查詢，將佔位符直接放入 SQL 字串
     sql_query = f"""
         SELECT *
         FROM `{table}`
         WHERE LOWER(TRIM(mode)) = LOWER(TRIM(:mode))
-          AND DATE(`{date_col}`) IN :date_list
+          AND DATE(`{date_col}`) IN ( {date_placeholders} )
         ORDER BY `{date_col}`
     """
-    params = {
-        "mode": mode,
-        "date_list": tuple(date_list)
-    }
+    
+    # 3. 建立參數字典，包含 mode 和所有 date_list 裡的值
+    params = {"mode": mode}
+    for i, date_val in enumerate(date_list):
+        params[f"date_{i}"] = date_val
+    # --- 【修正結束】---
 
-    # 執行查詢，並設定快取 10 分鐘
     rows_df = conn.query(sql_query, params=params, ttl=600)
 
-    # 以下資料清理部分保持不變
     if rows_df.empty:
         return rows_df
 
@@ -67,10 +69,11 @@ def _get_all_unique_dates(table, date_col, mode):
         ORDER BY d
     """
     df = conn.query(sql, params={'mode': mode}, ttl=3600)
+    # 確保返回的是字串格式 'YYYY-MM-DD'
     return df['d'].dt.strftime('%Y-%m-%d').tolist() if not df.empty else []
 
 
-# --- 2. 核心：數據縫合與斷層處理 (此區塊完全不需要修改) ---
+# --- 2. 核心：數據縫合與斷層處理 ---
 
 @st.cache_data
 def _prepare_seamless_data(df: pd.DataFrame, start_date_str: str, end_date_str: str) -> pd.DataFrame:
@@ -141,7 +144,7 @@ def _prepare_day_session_data(df: pd.DataFrame) -> pd.DataFrame:
     return final_df
 
 
-# --- 3. 繪圖核心 (此區塊完全不需要修改) ---
+# --- 3. 繪圖核心 ---
 
 def make_seamless_daily_trend(df: pd.DataFrame, y_range: List[float], y_ticks: List[float], session_type: str) -> go.Figure:
     if df.empty:
