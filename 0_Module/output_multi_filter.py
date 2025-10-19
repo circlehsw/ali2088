@@ -1,4 +1,4 @@
-# 檔案：output_multi_filter.py (雲端資料庫版本)
+# 檔案：output_multi_filter.py (最終效能優化 & 格式修正版)
 import pandas as pd
 import streamlit as st
 from typing import List
@@ -6,13 +6,8 @@ from typing import List
 __all__ = ["render_output"]
 
 def _weekday_mysql(weekdays: List[int]) -> str:
-    # MySQL: DAYOFWEEK() -> Sunday=1, Monday=2, ..., Saturday=7
-    # SQLite: STRFTIME('%w',...) -> Sunday=0, Monday=1, ...
-    # 我們需要 Monday-Saturday, 在 MySQL 中是 2,3,4,5,6,7
+    if not weekdays: return "2,3,4,5,6,7"
     mapping = {1:2, 2:3, 3:4, 4:5, 5:6, 6:7}
-    # 如果 weekdays 為空或 None，預設選取週一到週六
-    if not weekdays:
-        return "2,3,4,5,6,7"
     return ",".join(str(mapping.get(d, 0)) for d in sorted(weekdays))
 
 def _wrap_headers(df: pd.DataFrame) -> pd.DataFrame:
@@ -21,7 +16,23 @@ def _wrap_headers(df: pd.DataFrame) -> pd.DataFrame:
 
 def _render_table(df, start_date, end_date, mode, weekdays):
     st.caption(f"資料區間：{start_date} ~ {end_date}｜Mode：{mode}｜星期：{sorted(weekdays or [])}")
-    column_config = { "日期": st.column_config.TextColumn("日期", width=120), "星期": st.column_config.TextColumn("星期", width=60), "FT日盤\n收盤": st.column_config.NumberColumn("FT日盤\n收盤", width=110), "FT漲跌\n(日盤)": st.column_config.NumberColumn("FT漲跌\n(日盤)", width=110, format="%.0f"), "FT夜盤\n收盤": st.column_config.NumberColumn("FT夜盤\n收盤", width=110), "FT漲跌\n(夜盤)": st.column_config.NumberColumn("FT漲跌\n(夜盤)", width=110, format="%.0f"), "日盤收盤的\n價平和(價平)": st.column_config.NumberColumn("日盤收盤的\n價平和(價平)", width=120, format="%.0f"), "夜盤收盤的\n價平和(價平)": st.column_config.NumberColumn("夜盤收盤的\n價平和(價平)", width=120, format="%.0f"), "FT次交易日\n日盤收盤": st.column_config.NumberColumn("FT次交易日\n日盤收盤", width=120), "FT次交易日\n(FT漲跌-日盤)": st.column_config.NumberColumn("FT次交易日\n(FT漲跌-日盤)", width=140, format="%.0f"), "FT次交易日\n夜盤收盤": st.column_config.NumberColumn("FT次交易日\n夜盤收盤", width=120), "FT次交易日\n(FT漲跌-夜盤)": st.column_config.NumberColumn("FT次交易日\n(FT漲跌-夜盤)", width=140, format="%.0f"), "次交易日(日盤)\n價平和(價平)": st.column_config.NumberColumn("次交易日(日盤)\n價平和(價平)", width=140, format="%.0f"), "次交易日(夜盤)\n價平和(價平)": st.column_config.NumberColumn("次交易日(夜盤)\n價平和(價平)", width=140, format="%.0f"), }
+    column_config = {
+        # 【最終修正】將 TextColumn 改為 DateColumn 並指定格式
+        "日期": st.column_config.DateColumn("日期", width=120, format="YYYY-MM-DD"),
+        "星期": st.column_config.TextColumn("星期", width=60),
+        "FT日盤\n收盤": st.column_config.NumberColumn("FT日盤\n收盤", width=110),
+        "FT漲跌\n(日盤)": st.column_config.NumberColumn("FT漲跌\n(日盤)", width=110, format="%.0f"),
+        "FT夜盤\n收盤": st.column_config.NumberColumn("FT夜盤\n收盤", width=110),
+        "FT漲跌\n(夜盤)": st.column_config.NumberColumn("FT漲跌\n(夜盤)", width=110, format="%.0f"),
+        "日盤收盤的\n價平和(價平)": st.column_config.NumberColumn("日盤收盤的\n價平和(價平)", width=120, format="%.0f"),
+        "夜盤收盤的\n價平和(價平)": st.column_config.NumberColumn("夜盤收盤的\n價平和(價平)", width=120, format="%.0f"),
+        "FT次交易日\n日盤收盤": st.column_config.NumberColumn("FT次交易日\n日盤收盤", width=120),
+        "FT次交易日\n(FT漲跌-日盤)": st.column_config.NumberColumn("FT次交易日\n(FT漲跌-日盤)", width=140, format="%.0f"),
+        "FT次交易日\n夜盤收盤": st.column_config.NumberColumn("FT次交易日\n夜盤收盤", width=120),
+        "FT次交易日\n(FT漲跌-夜盤)": st.column_config.NumberColumn("FT次交易日\n(FT漲跌-夜盤)", width=140, format="%.0f"),
+        "次交易日(日盤)\n價平和(價平)": st.column_config.NumberColumn("次交易日(日盤)\n價平和(價平)", width=140, format="%.0f"),
+        "次交易日(夜盤)\n價平和(價平)": st.column_config.NumberColumn("次交易日(夜盤)\n價平和(價平)", width=140, format="%.0f"),
+    }
     st.dataframe(df, use_container_width=True, column_config=column_config, hide_index=True, height=300)
 
 def render_output(
@@ -46,7 +57,8 @@ def render_output(
     if filter_kph_change_target == "價平和上漲": kph_filter_sql = "(KphMaxUp BETWEEN :min_kph_value AND :max_kph_value)"; params.update({"min_kph_value": min_kph_change_value, "max_kph_value": max_kph_change_value})
     elif filter_kph_change_target == "價平和下跌": kph_filter_sql = "(KphMaxDown BETWEEN :min_kph_value AND :max_kph_value)"; params.update({"min_kph_value": min_kph_change_value, "max_kph_value": max_kph_change_value})
     if run:
-        main_params = {"start_date": start_date, "end_date": end_date, "mode": mode}; main_params.update(params)
+        end_date_plus_one = (pd.to_datetime(end_date) + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
+        main_params = {"start_date": start_date, "end_date_plus_one": end_date_plus_one, "mode": mode}; main_params.update(params)
         wk_sql = _weekday_mysql(weekdays or [])
         range_data_where_clauses = []
         if time_filter_enabled: range_data_where_clauses.append("TIME(ts) BETWEEN :min_time AND :max_time"); main_params.update({"min_time": min_time, "max_time": max_time})
@@ -56,7 +68,9 @@ def render_output(
         sql = f"""
         WITH base AS (
             SELECT DATE(`{date_col}`) AS d, `{date_col}` AS ts, mode, `FT價格`, `FT漲跌`, `價平和(價平)`, `價平和漲跌(價平)`
-            FROM `{table}` WHERE DATE(`{date_col}`) BETWEEN :start_date AND :end_date AND LOWER(TRIM(mode)) = LOWER(TRIM(:mode))
+            FROM `{table}`
+            WHERE `{date_col}` >= :start_date AND `{date_col}` < :end_date_plus_one
+              AND LOWER(TRIM(mode)) = LOWER(TRIM(:mode))
         ), RangeData AS (
             SELECT d, CAST(`FT漲跌` AS DECIMAL(10,2)) AS ft_chg, CAST(`價平和漲跌(價平)` AS DECIMAL(10,2)) AS kph_chg
             FROM base WHERE {range_data_where_sql}
@@ -110,7 +124,8 @@ def render_output(
         if df.empty:
             st.warning("沒有資料符合您的篩選條件。"); st.session_state['__df_snapshot__'] = pd.DataFrame(); st.session_state['__date_list_snapshot__'] = []
             return []
-        df = _wrap_headers(df); dates_list = pd.to_datetime(df["日期"]).dt.strftime('%Y-%m-%d').unique().tolist()
+        # 日期格式由 _render_table 中的 DateColumn 處理，這裡不需要特別轉換
+        dates_list = pd.to_datetime(df["日期"]).dt.strftime('%Y-%m-%d').unique().tolist() if "日期" in df.columns else []
         st.session_state['__date_list_snapshot__'] = dates_list; st.session_state['__df_snapshot__'] = df.copy()
         _render_table(df, start_date, end_date, mode, weekdays); return dates_list
     elif is_snapshot_available:
