@@ -1,4 +1,4 @@
-# 檔案：output_multi_filter.py (最終效能優化 & 格式修正版)
+# 檔案：output_multi_filter.py (v1.2 - 修正收盤價計算邏輯)
 import pandas as pd
 import streamlit as st
 from typing import List
@@ -17,7 +17,6 @@ def _wrap_headers(df: pd.DataFrame) -> pd.DataFrame:
 def _render_table(df, start_date, end_date, mode, weekdays):
     st.caption(f"資料區間：{start_date} ~ {end_date}｜Mode：{mode}｜星期：{sorted(weekdays or [])}")
     column_config = {
-        # 【最終修正】將 TextColumn 改為 DateColumn 並指定格式
         "日期": st.column_config.DateColumn("日期", width=120, format="YYYY-MM-DD"),
         "星期": st.column_config.TextColumn("星期", width=60),
         "FT日盤\n收盤": st.column_config.NumberColumn("FT日盤\n收盤", width=110),
@@ -79,11 +78,14 @@ def render_output(
             COALESCE(MAX(CASE WHEN kph_chg > 0 THEN kph_chg ELSE NULL END), 0.0) AS KphMaxUp, COALESCE(MIN(CASE WHEN kph_chg < 0 THEN kph_chg ELSE NULL END), 0.0) AS KphMaxDown
             FROM RangeData GROUP BY d HAVING ({target_filter_sql}) AND ({kph_filter_sql})
         ), FilteredBase AS (SELECT b.* FROM base b JOIN TargetDates td ON td.d = b.d
-        ), day_close AS (SELECT d, MAX(ts) AS ts_day_close FROM FilteredBase WHERE TIME(ts) <= '13:44:59' GROUP BY d
+        ), day_close AS (
+            -- 【最終修正】改為從 base 讀取，避免受到分鐘級篩選影響
+            SELECT d, MAX(ts) AS ts_day_close FROM base WHERE TIME(ts) <= '13:44:59' GROUP BY d
         ), night_close AS (
             SELECT x.d, MAX(x.ts) AS ts_night_close FROM (
+                -- 【最終修正】改為從 base 讀取，避免受到分鐘級篩選影響
                 SELECT DATE(CASE WHEN TIME(ts) < '05:00:00' THEN DATE_SUB(ts, INTERVAL 1 DAY) ELSE ts END) AS d, ts
-                FROM FilteredBase WHERE TIME(ts) >= '15:00:00' OR TIME(ts) < '05:00:00'
+                FROM base WHERE TIME(ts) >= '15:00:00' OR TIME(ts) < '05:00:00'
             ) x GROUP BY x.d
         ), All_Day_Close_TS AS (SELECT d, MAX(ts) AS ts_day_close FROM base WHERE TIME(ts) <= '13:44:59' GROUP BY d
         ), All_Night_Close_TS AS (
@@ -124,7 +126,6 @@ def render_output(
         if df.empty:
             st.warning("沒有資料符合您的篩選條件。"); st.session_state['__df_snapshot__'] = pd.DataFrame(); st.session_state['__date_list_snapshot__'] = []
             return []
-        # 日期格式由 _render_table 中的 DateColumn 處理，這裡不需要特別轉換
         dates_list = pd.to_datetime(df["日期"]).dt.strftime('%Y-%m-%d').unique().tolist() if "日期" in df.columns else []
         st.session_state['__date_list_snapshot__'] = dates_list; st.session_state['__df_snapshot__'] = df.copy()
         _render_table(df, start_date, end_date, mode, weekdays); return dates_list
